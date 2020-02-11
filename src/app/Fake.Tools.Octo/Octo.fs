@@ -27,7 +27,7 @@ type Options = {
     WorkingDirectory    : string
     Server              : ServerOptions
     Timeout             : TimeSpan }
-   
+
 /// Options for creating a new release
 type CreateReleaseOptions = {
     /// Name of the project
@@ -58,8 +58,8 @@ type CreateReleaseOptions = {
     Channel                 : string option
 
     /// Ignore package version matching rules
-    IgnoreChannelRules      : bool 
-    
+    IgnoreChannelRules      : bool
+
     ///common parameters
     Common: Options}
 
@@ -100,7 +100,7 @@ type DeployReleaseOptions = {
     /// A comma-separated list of machine names to target in the
     /// deployed environment. If not specified, all machines in
     /// the environment will be considered.
-    SpecificMachines            : string option 
+    SpecificMachines            : string option
 
     /// Channel to use for the new release
     Channel                     : string option
@@ -117,8 +117,8 @@ type DeleteReleasesOptions = {
     MinVersion  : string
 
     /// Maximum (inclusive) version number for the range of versions to delete
-    MaxVersion  : string     
-    
+    MaxVersion  : string
+
     /// If specified, only releases
     /// associated with the channel will be deleted;
     /// specify this argument multiple times to target
@@ -130,14 +130,14 @@ type DeleteReleasesOptions = {
 
 type PushOptions = {
     // paths to one or more packages to push to the server
-    Packages : string list 
+    Packages : string list
     /// if the package already exists, should this package overwrite it?
     ReplaceExisting : bool
     /// Common parameters
     Common: Options }
 
 /// Option type for selecting one command
-type internal Command = 
+type internal Command =
 | CreateRelease of CreateReleaseOptions * DeployReleaseOptions option
 | DeployRelease of DeployReleaseOptions
 | DeleteReleases of DeleteReleasesOptions
@@ -164,24 +164,24 @@ let internal releaseOptions = {
 
 /// Default options for 'DeployRelease'
 let internal deployOptions = {
-    Project = ""; DeployTo = ""; Version = ""; Force = false; WaitForDeployment = false; 
+    Project = ""; DeployTo = ""; Version = ""; Force = false; WaitForDeployment = false;
     DeploymentTimeout = None; DeploymentCheckSleepCycle = None; SpecificMachines = None;
     NoRawLog = false; Progress = false; Channel = None; Common = commonOptions }
 
 /// Default options for 'DeleteReleases'
-let internal deleteOptions = { 
+let internal deleteOptions = {
     Project = ""; MinVersion = ""; MaxVersion = ""; Channel = None; Common = commonOptions }
 
 /// Default options for 'Push'
 let internal pushOptions = {
     Packages = []; ReplaceExisting = false; Common = commonOptions}
 
-let private optionalStringParam p o = 
+let private optionalStringParam p o =
     match o with
     | Some s -> sprintf "--%s=%s" p s
     | None -> ""
 
-let private optionalObjParam p o = 
+let private optionalObjParam p o =
     match o with
     | Some x -> sprintf "--%s=%s" p (x.ToString())
     | None -> ""
@@ -193,21 +193,39 @@ let private stringListParam p os =
     sb.ToString()
 
 let private flag p b = if b then sprintf " --%s" p else ""
-    
-let private releaseCommandLine (opts:CreateReleaseOptions) =
-    [ (optionalStringParam "project" (String.liftString opts.Project))
-      (optionalStringParam "version" (String.liftString opts.Version))
-      (optionalStringParam "packageversion" (String.liftString opts.PackageVersion))
-      (stringListParam "package" opts.Packages)
-      (optionalStringParam "packagesfolder" opts.PackagesFolder)
-      (optionalStringParam "releasenotes" (String.liftString opts.ReleaseNotes))
-      (optionalStringParam "releasenotesfile" (String.liftString opts.ReleaseNotesFile))
-      (flag "ignoreExisting" opts.IgnoreExisting)
-      (optionalStringParam "channel" opts.Channel)
-      (flag "ignorechannelrules" opts.IgnoreChannelRules) ]
-    |> List.filter String.isNotNullOrEmpty
-    
-let private deployCommandLine (opts:DeployReleaseOptions) = 
+
+let private appendArray paramName values arguments =
+    (arguments, values)
+    ||> Seq.fold (fun args value -> Arguments.appendNotEmpty paramName value args)
+
+let private releaseCommandLine (createReleaseOptions: CreateReleaseOptions) =
+    Arguments.Empty
+    |> Arguments.appendRaw "create-release"
+    |> Arguments.appendNotEmpty "--project" createReleaseOptions.Project
+    |> Arguments.appendNotEmpty "--version" createReleaseOptions.Version
+    |> Arguments.appendOption "--version" createReleaseOptions.Channel
+    |> Arguments.appendNotEmpty "--packageVersion" createReleaseOptions.PackageVersion
+    |> appendArray "--package" createReleaseOptions.Packages
+    |> Arguments.appendOption "--packagesFolder" createReleaseOptions.PackagesFolder
+    |> Arguments.appendNotEmpty "--releasenotes" createReleaseOptions.ReleaseNotes
+    |> Arguments.appendNotEmpty "--releasenotesfile" createReleaseOptions.ReleaseNotesFile
+    |> Arguments.appendIf createReleaseOptions.IgnoreExisting "--ignoreexisting"
+    |> Arguments.appendIf createReleaseOptions.IgnoreChannelRules "--ignorechannelrules"
+
+let private appendDeploymentOptions (opts:DeployReleaseOptions) existingArguments =
+    existingArguments
+    |> Arguments.appendNotEmpty "--project" opts.Project
+    |> Arguments.appendNotEmpty "--version" opts.Version
+    |> Arguments.appendOption "--version" opts.Channel
+    |> Arguments.appendNotEmpty "--packageVersion" opts.PackageVersion
+    |> appendArray "--package" opts.Packages
+    |> Arguments.appendOption "--packagesFolder" opts.PackagesFolder
+    |> Arguments.appendNotEmpty "--releasenotes" opts.ReleaseNotes
+    |> Arguments.appendNotEmpty "--releasenotesfile" opts.ReleaseNotesFile
+    |> Arguments.appendIf opts.IgnoreExisting "--ignoreexisting"
+    |> Arguments.appendIf opts.IgnoreChannelRules "--ignorechannelrules"
+
+let private deployCommandLine (opts:DeployReleaseOptions) =
     [ (optionalStringParam "project" (String.liftString opts.Project))
       (optionalStringParam "deployto" (String.liftString opts.DeployTo))
       (optionalStringParam "version" (String.liftString opts.Version))
@@ -224,52 +242,68 @@ let private deployCommandLine (opts:DeployReleaseOptions) =
 let private deleteCommandLine (opts:DeleteReleasesOptions) =
     [ (optionalStringParam "project" (String.liftString opts.Project))
       (optionalStringParam "minversion" (String.liftString opts.MinVersion))
-      (optionalStringParam "maxversion" (String.liftString opts.MaxVersion)) 
+      (optionalStringParam "maxversion" (String.liftString opts.MaxVersion))
       (optionalStringParam "channel" (opts.Channel)) ]
     |> List.filter String.isNotNullOrEmpty
 
-let private serverCommandLine (opts:ServerOptions) = 
+let private serverCommandLine (opts:ServerOptions) =
     [ (optionalStringParam "server" (String.liftString opts.ServerUrl))
       (optionalStringParam "apikey" (String.liftString opts.ApiKey)) ]
     |> List.filter String.isNotNullOrEmpty
 
+let private appendServerOptions (opts: ServerOptions) arguments =
+    arguments
+    |> Arguments.appendNotEmpty "--server" opts.ServerUrl
+    |> Arguments.appendNotEmpty "--apikey" opts.ApiKey
+
 let private pushCommandLine (opts : PushOptions) =
-    [ stringListParam "package" opts.Packages
-      flag "replace-existing" opts.ReplaceExisting ]
-    |> List.filter String.isNotNullOrEmpty
+    Arguments.Empty
+    |> Arguments.appendRaw "push"
+    |> fun pushArgs ->
+        opts.Packages
+        |> List.fold (fun args package -> Arguments.appendNotEmpty "--package" package args) pushArgs
+    |> Arguments.appendIf opts.ReplaceExisting "--replace-existing"
 
 /// Maps a command to string input for the octopus tools cli.
 let internal commandLine command =
     match command with
     | CreateRelease (opts, None) ->
-        "create-release" :: (releaseCommandLine opts)
+        releaseCommandLine opts
     | CreateRelease (opts, Some (dopts)) ->
-        "create-release" :: ( List.append (releaseCommandLine opts) (deployCommandLine dopts) )
-    | DeployRelease opts ->
-        "deploy-release" :: (deployCommandLine opts)
-    | DeleteReleases opts ->
-        "delete-releases" :: (deleteCommandLine opts)
-    | ListEnvironments -> 
-        ["list-environments"] 
-    | Push opts -> 
-        "push" :: (pushCommandLine opts)
+        releaseCommandLine opts
+        |> appendDeploymentOptions dopts
+//    | DeployRelease opts ->
+//        "deploy-release" :: (deployCommandLine opts)
+//    | DeleteReleases opts ->
+//        "delete-releases" :: (deleteCommandLine opts)
+//    | ListEnvironments ->
+//        ["list-environments"]
+    | Push commandOptions ->
+        pushCommandLine commandOptions
 
 let private exec command options =
-    let serverCommandLineForTracing (opts: ServerOptions) = 
-        serverCommandLine { opts with ApiKey = "(Removed for security purposes)" }
+    let serverOptionsForTracing opts =
+        { opts with ApiKey = "(Removed for security purposes)" }
 
-    let tool = options.ToolPath @@ options.ToolName
-    let args = List.append (commandLine command) (serverCommandLine options.Server)
-               |> Arguments.OfArgs
-    let traceArgs = (List.append (commandLine command) (serverCommandLineForTracing options.Server)) |> List.fold (+) ""
-    
+    let tool = Path.Combine(options.ToolPath, options.ToolName)
+    let commandArgs = commandLine command
+    let applicationArgs =
+        commandArgs
+        |> appendServerOptions options.Server
+    let traceArgs =
+        commandArgs
+        |> appendServerOptions (serverOptionsForTracing options.Server)
+
     let commandString = command.ToString()
 
     use __ = Trace.traceTask "Octo " commandString
-    Trace.trace (tool + traceArgs)
-        
-    let result = 
-        RawCommand (tool, args)
+    traceArgs
+    |> Arguments.toStartInfo
+    |> sprintf "%s %s" tool
+    |> Trace.trace
+
+    let result =
+        RawCommand (tool, applicationArgs)
         |> CreateProcess.fromCommand
         |> CreateProcess.withWorkingDirectory options.WorkingDirectory
         |> CreateProcess.withTimeout options.Timeout
@@ -285,7 +319,7 @@ let private exec command options =
         result
 
 /// Creates a release and returns the exit code.
-let createReleaseWithExitCode setParams = 
+let createReleaseWithExitCode setParams =
     let options = setParams releaseOptions
     exec (CreateRelease (options, None)) options.Common
 
@@ -301,7 +335,7 @@ let deployReleaseWithExitCode setParams =
     exec (DeployRelease options) options.Common
 
 /// Deletes a range of releases and returns the exit code.
-let deleteReleasesWithExitCode setParams = 
+let deleteReleasesWithExitCode setParams =
     let options = setParams deleteOptions
     exec (DeleteReleases options) options.Common
 
@@ -311,7 +345,7 @@ let listEnvironmentsWithExitCode setParams =
     exec ListEnvironments options
 
 /// Pushes one or more packages to the Octopus built-in repository and returns the exit code.
-let pushWithExitCode setParams = 
+let pushWithExitCode setParams =
     let options = setParams pushOptions
     exec (Push options) options.Common
 
@@ -326,13 +360,13 @@ let private handleIgnoreExitCode commandString result =
 /// Creates a release.
 let createRelease setParams =
     let commandLine = (CreateRelease ((setParams releaseOptions), None)).ToString()
-    createReleaseWithExitCode setParams 
+    createReleaseWithExitCode setParams
     |> (handleIgnoreExitCode <| commandLine)
 
 /// Creates a release, and optionally deploys it to one or more environments.
 let createReleaseAndDeploy setReleaseParams setDeployParams =
     let commandLine = (CreateRelease ((setReleaseParams releaseOptions), (setDeployParams deployOptions))).ToString()
-    createReleaseAndDeployWithExitCode setReleaseParams setDeployParams 
+    createReleaseAndDeployWithExitCode setReleaseParams setDeployParams
     |> (handleIgnoreExitCode <| commandLine )
 
 /// Deploys releases that have already been created.
@@ -342,13 +376,13 @@ let deployRelease setParams =
     |> (handleIgnoreExitCode <| commandLine )
 
 /// Deletes a range of releases.
-let deleteReleases setParams = 
+let deleteReleases setParams =
     let commandLine = (DeleteReleases ((setParams deleteOptions))).ToString()
-    deleteReleasesWithExitCode setParams 
+    deleteReleasesWithExitCode setParams
     |> (handleIgnoreExitCode <| commandLine )
 
 /// Lists all environments.
-let listEnvironments setParams = 
+let listEnvironments setParams =
     let commandLine = (ListEnvironments).ToString()
     listEnvironmentsWithExitCode setParams
     |> (handleIgnoreExitCode <| commandLine)
