@@ -214,30 +214,17 @@ let private releaseCommandLine (createReleaseOptions: CreateReleaseOptions) =
 
 let private appendDeploymentOptions (opts:DeployReleaseOptions) existingArguments =
     existingArguments
-    |> Arguments.appendNotEmpty "--project" opts.Project
-    |> Arguments.appendNotEmpty "--version" opts.Version
-    |> Arguments.appendOption "--version" opts.Channel
-    |> Arguments.appendNotEmpty "--packageVersion" opts.PackageVersion
-    |> appendArray "--package" opts.Packages
-    |> Arguments.appendOption "--packagesFolder" opts.PackagesFolder
-    |> Arguments.appendNotEmpty "--releasenotes" opts.ReleaseNotes
-    |> Arguments.appendNotEmpty "--releasenotesfile" opts.ReleaseNotesFile
-    |> Arguments.appendIf opts.IgnoreExisting "--ignoreexisting"
-    |> Arguments.appendIf opts.IgnoreChannelRules "--ignorechannelrules"
-
-let private deployCommandLine (opts:DeployReleaseOptions) =
-    [ (optionalStringParam "project" (String.liftString opts.Project))
-      (optionalStringParam "deployto" (String.liftString opts.DeployTo))
-      (optionalStringParam "version" (String.liftString opts.Version))
-      (flag "force" opts.Force)
-      (flag "waitfordeployment" opts.WaitForDeployment)
-      (flag "norawlog" opts.NoRawLog)
-      (flag "progress" opts.Progress)
-      (optionalObjParam "deploymenttimeout" opts.DeploymentTimeout)
-      (optionalObjParam "deploymentchecksleepcycle" opts.DeploymentCheckSleepCycle)
-      (optionalStringParam "specificmachines" opts.SpecificMachines)
-      (optionalStringParam "channel" opts.Channel) ]
-    |> List.filter String.isNotNullOrEmpty
+    |> Arguments.appendNotEmpty "--project" opts.Project            // Is this used by Octopus? It doesn't appear in the deploy-release help, and the create-release version has its own arguments.
+    |> Arguments.appendNotEmpty "--deployto" opts.DeployTo
+    |> Arguments.appendNotEmpty "--version" opts.Version            // Same.
+    |> Arguments.appendIf opts.Force "--force"
+    |> Arguments.appendIf opts.WaitForDeployment "--waitfordeployment"
+    |> Arguments.appendIf opts.NoRawLog "--norawlog"
+    |> Arguments.appendIf opts.Progress "--progress"
+    |> Arguments.appendOption "--deploymenttimeout" (opts.DeploymentTimeout |> Option.map string)
+    |> Arguments.appendOption "--deploymentchecksleepcycle" (opts.DeploymentCheckSleepCycle |> Option.map string)
+    |> Arguments.appendOption "--specificmachines" opts.SpecificMachines
+    |> Arguments.appendOption "--channel" opts.Channel
 
 let private deleteCommandLine (opts:DeleteReleasesOptions) =
     [ (optionalStringParam "project" (String.liftString opts.Project))
@@ -269,13 +256,16 @@ let internal commandLine command =
     match command with
     | CreateRelease (opts, None) ->
         releaseCommandLine opts
-    | CreateRelease (opts, Some (dopts)) ->
+    | CreateRelease (opts, Some dopts) ->
         releaseCommandLine opts
         |> appendDeploymentOptions dopts
-//    | DeployRelease opts ->
-//        "deploy-release" :: (deployCommandLine opts)
-//    | DeleteReleases opts ->
-//        "delete-releases" :: (deleteCommandLine opts)
+    | DeployRelease opts ->
+        Arguments.Empty
+        |> Arguments.appendRaw "deploy-release"
+        |> appendDeploymentOptions opts
+    | DeleteReleases commandOptions ->
+        deleteReleasesCommandLine commandOptions
+        //"delete-releases" :: (deleteCommandLine opts)
 //    | ListEnvironments ->
 //        ["list-environments"]
     | Push commandOptions ->
